@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(spc700player)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+add_subdirectory(game-music-emu)
+add_library(spcplayer SHARED native-lib.cpp)
+target_include_directories(spcplayer PRIVATE game-music-emu)
+target_link_libraries(spcplayer game-music-emu android log)
