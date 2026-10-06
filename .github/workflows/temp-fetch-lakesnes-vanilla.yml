@@ -1,0 +1,27 @@
+name: TEMP fetch vanilla LakeSnes source
+on:
+  push:
+    paths:
+      - '.github/workflows/temp-fetch-lakesnes-vanilla.yml'
+  workflow_dispatch:
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact vanilla core
+        run: |
+          git clone https://github.com/angelo-wf/LakeSnes.git core
+          cd core
+          git checkout --detach 9db90b86e46a377609305e298dd92d71cd1d4c8a
+          test "$(git rev-parse HEAD)" = "9db90b86e46a377609305e298dd92d71cd1d4c8a"
+          cd ..
+          mkdir artifact
+          cp -R core/snes artifact/
+          cp core/LICENSE.txt artifact/LAKESNES_LICENSE.txt
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lakesnes-vanilla-source
+          path: artifact/
+          if-no-files-found: error
