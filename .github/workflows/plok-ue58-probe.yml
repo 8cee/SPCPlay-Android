@@ -1,0 +1,23 @@
+name: Plok UE5.8 official container probe
+
+on:
+  push:
+    branches: [plok-ue58-probe]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Login to GHCR
+        shell: bash
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Probe official UE5.8 dev image
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker manifest inspect ghcr.io/epicgames/unreal-engine:dev-slim-5.8.0
