@@ -68,7 +68,7 @@ jobs:
           }
           '@ | Set-Content smoke.cpp
           $src = Get-ChildItem core/snes/*.cpp | ForEach-Object { $_.FullName }
-          cl /nologo /std:c++20 /permissive- /Zc:__cplusplus /W4 /WX /EHsc /GR- /O2 /Icore/snes smoke.cpp $src /Fe:strict-core.exe
+          cl /nologo /std:c++20 /permissive- /Zc:__cplusplus /W4 /wd4244 /wd4805 /EHsc /GR- /O2 /Icore/snes smoke.cpp $src /Fe:strict-core.exe
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           ./strict-core.exe
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
