@@ -1,0 +1,27 @@
+name: TEMP fetch LakeSnes pinned source
+on:
+  push:
+    paths:
+      - '.github/workflows/temp-fetch-lakesnes.yml'
+  workflow_dispatch:
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact pinned core
+        run: |
+          git clone https://github.com/blueberry077/LakeSnes_Tracer.git core
+          cd core
+          git checkout --detach 99c6ab96e6376516f98c19b6388c047acd7fc0aa
+          test "$(git rev-parse HEAD)" = "99c6ab96e6376516f98c19b6388c047acd7fc0aa"
+          cd ..
+          mkdir artifact
+          cp -R core/snes artifact/
+          cp core/LICENSE.txt artifact/LAKESNES_LICENSE.txt
+          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lakesnes-pinned-source
+          path: artifact/
+          if-no-files-found: error
