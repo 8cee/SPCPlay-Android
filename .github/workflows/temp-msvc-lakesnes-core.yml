@@ -1,0 +1,86 @@
+name: TEMP MSVC LakeSnes embedded core validation
+on:
+  push:
+    paths:
+      - '.github/workflows/temp-msvc-lakesnes-core.yml'
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Fetch and patch vanilla core
+        shell: pwsh
+        run: |
+          git clone https://github.com/angelo-wf/LakeSnes.git core
+          cd core
+          git checkout --detach 9db90b86e46a377609305e298dd92d71cd1d4c8a
+          cd ..
+          Get-ChildItem core/snes/*.c | ForEach-Object { Rename-Item $_.FullName ($_.BaseName + '.cpp') }
+          @'
+          from pathlib import Path
+          root=Path("core/snes")
+          replacements={
+          "apu.cpp":[("Apu* apu = malloc(sizeof(Apu));","Apu* apu = static_cast<Apu*>(malloc(sizeof(Apu)));")],
+          "cart.cpp":[("Cart* cart = malloc(sizeof(Cart));","Cart* cart = static_cast<Cart*>(malloc(sizeof(Cart)));"),("cart->rom = malloc(romSize);","cart->rom = static_cast<uint8_t*>(malloc(romSize));"),("cart->ram = malloc(ramSize);","cart->ram = static_cast<uint8_t*>(malloc(ramSize));")],
+          "cpu.cpp":[("Cpu* cpu = malloc(sizeof(Cpu));","Cpu* cpu = static_cast<Cpu*>(malloc(sizeof(Cpu)));")],
+          "dma.cpp":[("Dma* dma = malloc(sizeof(Dma));","Dma* dma = static_cast<Dma*>(malloc(sizeof(Dma)));")],
+          "dsp.cpp":[("Dsp* dsp = malloc(sizeof(Dsp));","Dsp* dsp = static_cast<Dsp*>(malloc(sizeof(Dsp)));"),("s = (s << shift) >> 1;","s = (s * (1 << shift)) >> 1;"),("s = (s >> 3) << 12;","s = (s >> 3) * 4096;")],
+          "input.cpp":[("Input* input = malloc(sizeof(Input));","Input* input = static_cast<Input*>(malloc(sizeof(Input)));")],
+          "ppu.cpp":[("Ppu* ppu = malloc(sizeof(Ppu));","Ppu* ppu = static_cast<Ppu*>(malloc(sizeof(Ppu)));")],
+          "snes.cpp":[("Snes* snes = malloc(sizeof(Snes));","Snes* snes = static_cast<Snes*>(malloc(sizeof(Snes)));")],
+          "snes_other.cpp":[("uint8_t* newData = malloc(newLength);","uint8_t* newData = static_cast<uint8_t*>(malloc(newLength));")],
+          "spc.cpp":[("Spc* spc = malloc(sizeof(Spc));","Spc* spc = static_cast<Spc*>(malloc(sizeof(Spc)));")],
+          "statehandler.cpp":[("StateHandler* sh = malloc(sizeof(StateHandler));","StateHandler* sh = static_cast<StateHandler*>(malloc(sizeof(StateHandler)));"),("sh->data = malloc(size);","sh->data = static_cast<uint8_t*>(malloc(size));"),("sh->data = malloc(1024);","sh->data = static_cast<uint8_t*>(malloc(1024));"),("sh->data = realloc(sh->data, sh->allocSize * 2);","sh->data = static_cast<uint8_t*>(realloc(sh->data, sh->allocSize * 2));")]
+          }
+          for name,pairs in replacements.items():
+              p=root/name;s=p.read_text()
+              for a,b in pairs:
+                  assert a in s,(name,a)
+                  s=s.replace(a,b)
+              p.write_text(s)
+          p=root/"snes_other.cpp";s=p.read_text()
+          s=s.replace("  header->romSize = 0x400 << data[location + 0x17];\n  header->ramSize = 0x400 << data[location + 0x18];","  uint8_t romShift = data[location + 0x17];\n  uint8_t ramShift = data[location + 0x18];\n  header->romSize = romShift < 22 ? (0x400u << romShift) : 0;\n  header->ramSize = ramShift < 22 ? (0x400u << ramShift) : 0;")
+          s=s.replace("    header->flashSize = 0x400 << data[location - 4];\n    header->exRamSize = 0x400 << data[location - 3];","    uint8_t flashShift = data[location - 4];\n    uint8_t exRamShift = data[location - 3];\n    header->flashSize = flashShift < 22 ? (0x400u << flashShift) : 0;\n    header->exRamSize = exRamShift < 22 ? (0x400u << exRamShift) : 0;")
+          p.write_text(s)
+          '@ | Set-Content patch.py
+          python patch.py
+      - name: Build and run synthetic-ROM smoke test with MSVC
+        shell: pwsh
+        run: |
+          @'
+          #include <cstdio>
+          #include <cstdint>
+          #include <vector>
+          #include "snes.h"
+          int main(){
+            std::vector<uint8_t> rom(0x8000,0xea);
+            const int h=0x7fc0;
+            const char name[]="ALLSTARS CORE TEST    ";
+            for(int i=0;i<21;i++)rom[h+i]=name[i];
+            rom[h+0x15]=0x20;
+            rom[h+0x16]=0x00;
+            rom[h+0x17]=0x05;
+            rom[h+0x18]=0x00;
+            rom[h+0x19]=0x02;
+            rom[h+0x1c]=0xff; rom[h+0x1d]=0xff; rom[h+0x1e]=0x00; rom[h+0x1f]=0x00;
+            rom[0]=0x80; rom[1]=0xfe;
+            rom[h+0x3c]=0x00; rom[h+0x3d]=0x80;
+            Snes*s=snes_init(); if(!s)return 2;
+            if(!snes_loadRom(s,rom.data(),(int)rom.size()))return 3;
+            std::vector<uint8_t> pixels(512*480*4);
+            std::vector<int16_t> audio(1920);
+            for(int i=0;i<5;i++){snes_runFrame(s);snes_setPixels(s,pixels.data());snes_setSamples(s,audio.data(),s->palTiming?960:800);}
+            int stateSize=snes_saveState(s,nullptr); if(stateSize<=0)return 4;
+            std::vector<uint8_t> state(stateSize); if(snes_saveState(s,state.data())!=stateSize)return 5;
+            if(!snes_loadState(s,state.data(),stateSize))return 6;
+            std::printf("PASS pal=%d frames=%u state=%d\n",(int)s->palTiming,s->frames,stateSize);
+            snes_free(s); return 0;
+          }
+          '@ | Set-Content smoke.cpp
+          $sources = Get-ChildItem core/snes/*.cpp | ForEach-Object { $_.FullName }
+          cl /nologo /std:c++17 /EHsc /O2 /Icore/snes smoke.cpp $sources /Fe:core-smoke.exe
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          ./core-smoke.exe
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
